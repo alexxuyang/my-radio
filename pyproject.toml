@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "imageio-ffmpeg>=0.6.0",
     "pillow>=12.1.1",
 ]
 
