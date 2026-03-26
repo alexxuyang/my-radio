@@ -88,22 +88,24 @@ class RadioApp:
         self.logo_redraw_job = None
         self.logo_ready = False
         self.logo_cache: dict[str, ImageTk.PhotoImage] = {}
+        self.is_muted = False
         
         self.build_ui()
         self.bind_keys()
-        self.root.after(100, lambda: self.select_station("101.7", auto_play=True))
-        
+
         self.current_station_id = "101.7"
         self.name_var.set(STATIONS["101.7"]["name"])
         self.freq_var.set(STATIONS["101.7"]["freq"])
         self.root.title(f"📻 {STATIONS['101.7']['name']} {STATIONS['101.7']['freq']}")
-        self.status_var.set("已选择，未播放")
+        self.status_var.set("正在播放：{STATIONS['101.7']['name']} {STATIONS['101.7']['freq']}")
 
         for sid, btn in self.station_buttons.items():
             if sid == "101.7":
                 btn.configure(bg="#2d5cff")
             else:
                 btn.configure(bg="#252935")
+
+        self.root.after(100, self.play_current)
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -178,7 +180,7 @@ class RadioApp:
 
         tips = tk.Label(
             left,
-            text="快捷键\n↑↓ = 切换电台\n空格 = 播放/停止\nQ = 退出",
+            text="快捷键\n↑↓ = 切换电台\n空格 = 播放/停止\nM = 静音\nQ = 退出",
             fg="#b8c0d0",
             bg="#171a21",
             justify="left",
@@ -292,14 +294,21 @@ class RadioApp:
         )
         self.stop_btn.pack(side="left", padx=10)
 
-        self.info_label = tk.Label(
+        self.mute_btn = tk.Button(
             controls,
-            text="底层播放器：ffplay",
-            fg="#94a0b8",
-            bg="#101216",
-            font=("Microsoft YaHei UI", 11),
+            text="🔊 静音",
+            command=self.toggle_mute,
+            bg="#303646",
+            fg="white",
+            activebackground="#40495e",
+            activeforeground="white",
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=10,
+            font=("Microsoft YaHei UI", 11, "bold"),
         )
-        self.info_label.pack(side="right")
+        self.mute_btn.pack(side="left", padx=(10, 0))
 
     def bind_keys(self) -> None:
         self.root.bind("1", lambda _: self.select_station("101.7", auto_play=True))
@@ -309,6 +318,8 @@ class RadioApp:
         self.root.bind("<Down>", lambda _: self.cycle_station(1))
         self.root.bind("q", lambda _: self.on_close())
         self.root.bind("Q", lambda _: self.on_close())
+        self.root.bind("m", lambda _: self.toggle_mute())
+        self.root.bind("M", lambda _: self.toggle_mute())
 
         # 阻止空格传播到子控件
         for widget in (self.play_btn, self.stop_btn):
@@ -389,6 +400,8 @@ class RadioApp:
         if os.name == "nt":
             creationflags = subprocess.CREATE_NO_WINDOW
 
+        vol = 0 if self.is_muted else 100
+
         try:
             self.process = subprocess.Popen(
                 [
@@ -396,6 +409,8 @@ class RadioApp:
                     "-nodisp",
                     "-loglevel",
                     "quiet",
+                    "-volume",
+                    str(vol),
                     station["url"],
                 ],
                 stdin=subprocess.PIPE,
@@ -435,6 +450,12 @@ class RadioApp:
         if self.process and self.process.poll() is None:
             self.stop_playback()
         else:
+            self.play_current()
+
+    def toggle_mute(self) -> None:
+        self.is_muted = not self.is_muted
+        self.mute_btn.configure(text="🔇 已静音" if self.is_muted else "🔊 静音")
+        if self.process and self.process.poll() is None:
             self.play_current()
 
     def cycle_station(self, direction: int) -> None:
