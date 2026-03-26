@@ -1,2 +1,55 @@
-# build the app
+# My Radio
+
+上海电台收音机，支持 5 个频道、快捷键、静音。
+
+## 电台
+
+| 频率 | 名称 |
+|------|------|
+| FM101.7 | 上海动感101 |
+| FM103.7 | 上海流行音乐 LoveRadio |
+| FM93.4 | 上海新闻广播 |
+| FM97.7 | 第一财经广播 |
+| FM105.7 | 上海交通广播 |
+
+## 依赖
+
+- **Python 3.10+**
+- **FFmpeg**（包含 ffplay）
+
+  必须确保 `ffplay` 可用，程序会按以下顺序查找：
+
+  1. `PATH` 中的 `ffplay`
+  2. `C:\Users\<用户名>\AppData\Local\Microsoft\WinGet\Packages\...\ffplay.exe`（WinGet 安装的 Gyan.FFmpeg）
+  3. `C:\Program Files\ffmpeg\bin\ffplay.exe`
+  4. `C:\ffmpeg\bin\ffplay.exe`
+
+  将 FFmpeg 加入 PATH 后最省事：
+  ```
+  控制面板 → 系统 → 环境变量 → 编辑 PATH → 添加 FFmpeg bin 目录
+  ```
+
+## 安装运行
+
+```bash
+# 安装依赖
+uv sync
+
+# 运行
+uv run python main.py
+```
+
+## 快捷键
+
+| 按键 | 功能 |
+|------|------|
+| ↑ / ↓ | 切换上/下一个电台 |
+| 空格 | 播放 / 停止 |
+| M | 静音 / 取消静音 |
+| Q | 退出 |
+
+## 打包
+
+```bash
 uv run pyinstaller --noconfirm --clean --onefile --windowed --name my-radio main.py
+```
