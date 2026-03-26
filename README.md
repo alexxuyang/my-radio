@@ -2,6 +2,8 @@
 
 上海电台收音机，支持 5 个频道、快捷键、静音。
 
+![界面截图](https://raw.githubusercontent.com/alexxuyang/my-radio/main/resources/screen.png)
+
 ## 电台
 
 | 频率 | 名称 |
