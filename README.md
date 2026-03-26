@@ -48,8 +48,21 @@ uv run python main.py
 | M | 静音 / 取消静音 |
 | Q | 退出 |
 
+## 下载
+
+直接下载 exe 运行，无需安装任何东西：
+
+- **[my-radio-with-ffmpeg-1.0.0.exe](https://github.com/alexxuyang/my-radio/releases/download/1.0.0/my-radio-with-ffmpeg-1.0.0.exe)** — 带 FFmpeg，推荐下载 (291MB)
+- **[my-radio-1.0.0.exe](https://github.com/alexxuyang/my-radio/releases/download/1.0.0/my-radio-1.0.0.exe)** — 不带 FFmpeg，需系统已安装 FFmpeg (47MB)
+
 ## 打包
 
+**带 FFmpeg：**
+```bash
+uv run pyinstaller --noconfirm --clean --onefile --windowed --add-binary "ffmpeg\\bin;." --name my-radio main.py
+```
+
+**不带 FFmpeg：**
 ```bash
 uv run pyinstaller --noconfirm --clean --onefile --windowed --name my-radio main.py
 ```
