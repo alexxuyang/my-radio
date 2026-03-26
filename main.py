@@ -89,6 +89,8 @@ class RadioApp:
         self.logo_ready = False
         self.logo_cache: dict[str, ImageTk.PhotoImage] = {}
         self.is_muted = False
+        self.play_anim_job = None
+        self._play_anim_idx = 0
         
         self.build_ui()
         self.bind_keys()
@@ -97,7 +99,7 @@ class RadioApp:
         self.name_var.set(STATIONS["101.7"]["name"])
         self.freq_var.set(STATIONS["101.7"]["freq"])
         self.root.title(f"📻 {STATIONS['101.7']['name']} {STATIONS['101.7']['freq']}")
-        self.status_var.set("正在播放：{STATIONS['101.7']['name']} {STATIONS['101.7']['freq']}")
+        self.status_var.set(f"正在播放：{STATIONS['101.7']['name']} {STATIONS['101.7']['freq']}")
 
         for sid, btn in self.station_buttons.items():
             if sid == "101.7":
@@ -242,6 +244,8 @@ class RadioApp:
             bg="#101216",
             font=("Microsoft YaHei UI", 12),
             anchor="w",
+            padx=2,
+            pady=2,
         )
         self.status_label.pack(fill="x", pady=(8, 0))
 
@@ -418,13 +422,18 @@ class RadioApp:
                 stderr=subprocess.DEVNULL,
                 creationflags=creationflags,
             )
-            self.status_var.set(f"正在播放：{station['name']} {station['freq']}")
+            self._play_anim_idx = 0
+            self.status_var.set(f"🔊 正在播放：{station['name']} {station['freq']}")
+            self._play_anim_tick()
         except Exception as e:
             self.process = None
             self.status_var.set(f"启动失败：{e}")
             messagebox.showerror("播放失败", str(e))
 
     def stop_playback(self) -> None:
+        if self.play_anim_job:
+            self.root.after_cancel(self.play_anim_job)
+            self.play_anim_job = None
         if not self.process:
             self.status_var.set("已停止")
             return
@@ -473,6 +482,15 @@ class RadioApp:
         from datetime import datetime
         self.time_var.set(datetime.now().strftime("%H:%M:%S"))
         self.root.after(1000, self._update_clock)
+
+    def _play_anim_tick(self) -> None:
+        if not self.process or self.process.poll() is not None:
+            return
+        icons = ["🔊", "🔉", "🔈"]
+        station = STATIONS[self.current_station_id]
+        self.status_var.set(f"{icons[self._play_anim_idx]} 正在播放：{station['name']} {station['freq']}")
+        self._play_anim_idx = (self._play_anim_idx + 1) % len(icons)
+        self.play_anim_job = self.root.after(600, self._play_anim_tick)
 
     def on_close(self) -> None:
         self.stop_playback()
