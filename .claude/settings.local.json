@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(uv add:*)",
+      "Bash(python -c \"import imageio_ffmpeg; print\\(imageio_ffmpeg.get_ffmpeg_exe\\(\\)\\)\")",
+      "Bash(python -c \"import shutil; print\\(shutil.which\\(''ffplay''\\)\\)\")",
+      "Bash(uv run:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

@@ -24,6 +24,8 @@ except ImportError:
     print("Please install pillow: pip install pillow")
     sys.exit(1)
 
+import imageio_ffmpeg
+
 
 STATIONS = {
     "101.7": {
@@ -65,18 +67,20 @@ class RadioApp:
         self.root.geometry("1500x950")
         self.root.minsize(1300, 820)
 
-        self.ffplay_path = shutil.which("ffplay")
-        if not self.ffplay_path:
-            # 常见位置扫描
-            common_paths = [
-                r"C:\Users\alex\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffplay.exe",
-                r"C:\Program Files\ffmpeg\bin\ffplay.exe",
-                r"C:\ffmpeg\bin\ffplay.exe",
-            ]
-            for path in common_paths:
-                if os.path.isfile(path):
-                    self.ffplay_path = path
-                    break
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass and os.path.isfile(os.path.join(meipass, "ffplay.exe")):
+            self.ffplay_path = os.path.join(meipass, "ffplay.exe")
+        else:
+            self.ffplay_path = shutil.which("ffplay")
+            if not self.ffplay_path:
+                try:
+                    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+                    self.ffplay_path = ffmpeg_exe.replace("\\ffmpeg", "\\ffplay").replace("/ffmpeg", "/ffplay")
+                    if not os.path.isfile(self.ffplay_path):
+                        self.ffplay_path = ffmpeg_exe
+                except Exception:
+                    self.ffplay_path = None
+
         if not self.ffplay_path:
             messagebox.showerror("错误", "没有找到 ffplay。请先安装 ffmpeg，并确保 ffplay 在 PATH 中。")
             root.destroy()
