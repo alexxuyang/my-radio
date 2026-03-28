@@ -13,6 +13,8 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import queue
 import tkinter as tk
 from tkinter import messagebox
 from urllib.request import urlopen
@@ -25,6 +27,9 @@ except ImportError:
     sys.exit(1)
 
 import imageio_ffmpeg
+import numpy as np
+import re
+from funasr import AutoModel
 
 
 STATIONS = {
@@ -95,6 +100,16 @@ class RadioApp:
         self.is_muted = False
         self.play_anim_job = None
         self._play_anim_idx = 0
+
+        # ASR
+        self.asr_model = None
+        self.asr_thread: threading.Thread | None = None
+        self.asr_q: queue.Queue = queue.Queue()
+        self.asr_proc: subprocess.Popen | None = None
+        self.asr_run_id = 0
+        self.asr_running = False
+        self.transcript_lines: list[str] = []
+        self.asr_ready = False
         
         self.build_ui()
         self.bind_keys()
@@ -219,7 +234,6 @@ class RadioApp:
         self.clock_label.pack()
 
         self._update_clock()
-        self.root.after(1000, self._update_clock)
 
         self.name_label = tk.Label(
             header_left,
@@ -252,6 +266,25 @@ class RadioApp:
             pady=2,
         )
         self.status_label.pack(fill="x", pady=(8, 0))
+
+        transcript_frame = tk.Frame(right, bg="#0f1117")
+        transcript_frame.pack(fill="x", pady=(8, 0))
+
+        self.transcript_text = tk.Text(
+            transcript_frame,
+            height=7,
+            fg="#b8c0d0",
+            bg="#0f1117",
+            font=("Microsoft YaHei UI", 12),
+            wrap="word",
+            relief="flat",
+            state="disabled",
+            padx=4,
+            pady=4,
+            borderwidth=0,
+            highlightthickness=0,
+        )
+        self.transcript_text.pack(fill="x")
 
         self.logo_frame = tk.Frame(right, bg="#0f1117", height=360, highlightthickness=1, highlightbackground="#2a3142")
         self.logo_frame.pack(fill="both", expand=True, pady=16)
@@ -429,6 +462,7 @@ class RadioApp:
             self._play_anim_idx = 0
             self.status_var.set(f"🔊 正在播放：{station['name']} {station['freq']}")
             self._play_anim_tick()
+            self._start_asr(station["url"])
         except Exception as e:
             self.process = None
             self.status_var.set(f"启动失败：{e}")
@@ -438,6 +472,7 @@ class RadioApp:
         if self.play_anim_job:
             self.root.after_cancel(self.play_anim_job)
             self.play_anim_job = None
+        self._stop_asr()
         if not self.process:
             self.status_var.set("已停止")
             return
@@ -495,6 +530,156 @@ class RadioApp:
         self.status_var.set(f"{icons[self._play_anim_idx]} 正在播放：{station['name']} {station['freq']}")
         self._play_anim_idx = (self._play_anim_idx + 1) % len(icons)
         self.play_anim_job = self.root.after(600, self._play_anim_tick)
+
+    def _start_asr(self, url: str) -> None:
+        """启动 ASR 后台线程，用独立的 FFmpeg 拉流做转写"""
+        if self.asr_thread and self.asr_thread.is_alive():
+            return
+        self.asr_run_id += 1
+        run_id = self.asr_run_id
+        self.asr_running = True
+        self.asr_ready = False
+        local_q: queue.Queue = queue.Queue()
+        self.asr_q = local_q
+        # 仅首次加载模型时显示“ASR 加载中...”
+        self.transcript_lines.clear()
+        if self.asr_model is None:
+            self._render_transcript(current_line="ASR 加载中...")
+        else:
+            self._render_transcript()
+        self.asr_thread = threading.Thread(
+            target=self._asr_loop,
+            args=(url, local_q, run_id),
+            daemon=True,
+        )
+        self.asr_thread.start()
+        self.root.after(500, self._poll_asr)
+
+    def _asr_loop(self, url: str, local_q: queue.Queue, run_id: int) -> None:
+        """后台线程：FFmpeg 拉流 -> 积累音频 -> FunASR 推理 -> 结果放入队列"""
+        ffmpeg_path = re.sub(r"[Ff][Ff]play(\.exe)?$", lambda m: "ffmpeg" + (m.group(1) or ""), self.ffplay_path, count=0, flags=re.IGNORECASE)
+
+        # 懒加载模型
+        if self.asr_model is None:
+            try:
+                self.asr_model = AutoModel(
+                    model="iic/SenseVoiceSmall",
+                    device="cpu",
+                    disable_update=True,
+                )
+                local_q.put(("status", "ASR 已就绪（CPU）"))
+                self.asr_ready = True
+            except Exception:
+                local_q.put(("status", "ASR 初始化失败"))
+                return
+        proc = subprocess.Popen(
+            [
+                ffmpeg_path,
+                "-v", "quiet",
+                "-i", url,
+                "-ar", "16000", "-ac", "1", "-f", "s16le", "-"
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        self.asr_proc = proc
+
+        buf = b""
+        chunk_size = 16000 * 2  # 1 second (16kHz, s16le, mono)
+        while self.asr_running and run_id == self.asr_run_id:
+            try:
+                data = proc.stdout.read(chunk_size)
+                if not data:
+                    break
+                buf += data
+                if len(buf) >= chunk_size * 2:  # 积累够2秒再处理
+                    audio = np.frombuffer(buf[:chunk_size * 2], dtype=np.int16).astype(np.float32) / 32768.0
+                    buf = buf[chunk_size * 2:]  # 完全丢弃已处理的，不重叠
+                    try:
+                        result = self.asr_model.generate(audio, return_raw_text=True, disable_pbar=True)
+                        text = result[0].get("text", "") if result else ""
+                        # 跳过日/韩/粤标签片段
+                        if any(tag in text for tag in ("<|ja|>", "<|ko|>", "<|yue|>")):
+                            continue
+                        # 跳过含日韩字符比例高的片段
+                        ja_chars = sum(1 for c in text if '\u3040' <= c <= '\u309f' or '\u30a0' <= c <= '\u30ff')
+                        ko_chars = sum(1 for c in text if '\uac00' <= c <= '\ud7af' or '\u1100' <= c <= '\u11ff')
+                        if len(text) > 0 and (ja_chars + ko_chars) / len(text) > 0.3:
+                            continue
+                        # 去掉语言标签，保留中文和英文内容
+                        text = text.replace("<|zh|>", "").replace("<|en|>", "")
+                        text = re.sub(r"<\|[^|]+\|>", "", text).strip()
+                        if text:
+                            local_q.put(("text", text))
+                    except Exception:
+                        pass
+            except Exception:
+                break
+        try:
+            proc.terminate()
+            proc.wait(timeout=1)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        finally:
+            if self.asr_proc is proc:
+                self.asr_proc = None
+
+    def _render_transcript(self, current_line: str = "") -> None:
+        """固定渲染7行：普通滚动文本，不做行语义绑定与高亮。"""
+        if self.transcript_lines:
+            display_lines = list(self.transcript_lines[-7:])
+        elif current_line:
+            display_lines = [current_line]
+        else:
+            display_lines = []
+
+        display_lines += [""] * (7 - len(display_lines))
+
+        self.transcript_text.config(state="normal")
+        self.transcript_text.delete("1.0", "end")
+        for line in display_lines:
+            self.transcript_text.insert("end", line + "\n")
+        self.transcript_text.see("1.0")
+        self.transcript_text.config(state="disabled")
+
+    def _poll_asr(self) -> None:
+        """主线程轮询 ASR 结果，保持7行滚动显示"""
+        try:
+            while True:
+                kind, text = self.asr_q.get_nowait()
+                if kind == "status":
+                    # 状态仅在尚未出现转写文本前占位显示
+                    if not self.transcript_lines:
+                        self._render_transcript(current_line=text)
+                    continue
+                if self.transcript_lines and text == self.transcript_lines[-1]:
+                    continue
+                self.transcript_lines.append(text)
+                if len(self.transcript_lines) > 20:
+                    self.transcript_lines.pop(0)
+                self._render_transcript()
+        except queue.Empty:
+            pass
+        if self.asr_running and self.asr_thread and self.asr_thread.is_alive():
+            self.root.after(500, self._poll_asr)
+
+    def _stop_asr(self) -> None:
+        self.asr_run_id += 1
+        self.asr_running = False
+        self.asr_ready = False
+        proc = self.asr_proc
+        self.asr_proc = None
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        self.asr_thread = None
+        self.transcript_lines.clear()
+        self._render_transcript()
 
     def on_close(self) -> None:
         self.stop_playback()

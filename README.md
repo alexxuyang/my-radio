@@ -59,12 +59,16 @@ uv run python main.py
 
 ## 打包
 
-**带 FFmpeg：**
+**打包带 FFmpeg 版本（Standalone，无需用户安装 FFmpeg）：**
+
+1. 确认 FFmpeg 已安装且在 PATH 中
+2. 把 FFmpeg 的 bin 目录路径替换到下面命令中：
+
 ```bash
-uv run pyinstaller --noconfirm --clean --onefile --windowed --add-binary "ffmpeg\\bin;." --name my-radio main.py
+uv run pyinstaller --noconfirm --clean --onefile --windowed --add-binary "你的FFmpeg\\bin目录路径;." --name my-radio main.py
 ```
 
-**不带 FFmpeg：**
+**不带 FFmpeg 版本（需要用户已安装 FFmpeg）：**
 ```bash
 uv run pyinstaller --noconfirm --clean --onefile --windowed --name my-radio main.py
 ```
